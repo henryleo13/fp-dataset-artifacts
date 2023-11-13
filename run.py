@@ -116,6 +116,23 @@ def main():
         eval_dataset = dataset[eval_split]
         if args.max_eval_samples:
             eval_dataset = eval_dataset.select(range(args.max_eval_samples))
+        
+        dataset_type1 = ['./Breaking_NLI-master/data/dataset.jsonl', 
+                         './multinli_1.0/multinli_1.0_dev_matched.jsonl',
+                         './multinli_1.0/multinli_1.0_dev_mismatched.jsonl']
+        if args.dataset in dataset_type1:
+            # Chnage key value of sentence1 and sentence2 to premise and hypothesis
+            # map label to 0, 1, 2
+            eval_dataset = eval_dataset.map(
+                lambda ex: {'premise': ex['sentence1'], 'hypothesis': ex['sentence2'], 'label': 0 if ex['gold_label'] == 'entailment' else 1 if ex['gold_label'] == 'neutral' else 2},
+                remove_columns=eval_dataset.column_names
+            )
+        elif args.dataset == './heuristics_evaluation_set.jsonl':
+            eval_dataset = eval_dataset.map(
+                lambda ex: {'premise': ex['sentence1'], 'hypothesis': ex['sentence2'], 'label': 0 if ex['gold_label'] == 'entailment' else 1 if ex['gold_label'] == 'non-entailment'},
+                remove_columns=eval_dataset.column_names
+            )
+
         eval_dataset_featurized = eval_dataset.map(
             prepare_eval_dataset,
             batched=True,

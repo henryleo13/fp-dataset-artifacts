@@ -1,2 +1,7 @@
 *.pyc
 output/
+trained_model/
+eval_output*/
+evals*/
+datasets/
+snli_model/
