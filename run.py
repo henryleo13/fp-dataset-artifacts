@@ -117,9 +117,9 @@ def main():
         if args.max_eval_samples:
             eval_dataset = eval_dataset.select(range(args.max_eval_samples))
         
-        dataset_type1 = ['./Breaking_NLI-master/data/dataset.jsonl', 
-                         './multinli_1.0/multinli_1.0_dev_matched.jsonl',
-                         './multinli_1.0/multinli_1.0_dev_mismatched.jsonl']
+        dataset_type1 = ['./datasets/Breaking_NLI-master/data/dataset.jsonl', 
+                         './datasets/multinli_1.0/multinli_1.0_dev_matched.jsonl',
+                         './datasets/multinli_1.0/multinli_1.0_dev_mismatched.jsonl']
         if args.dataset in dataset_type1:
             # Chnage key value of sentence1 and sentence2 to premise and hypothesis
             # map label to 0, 1, 2
