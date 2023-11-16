@@ -4,7 +4,23 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-
+        {
+            "name": "Python: train debug",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run.py",
+            "args": [
+                "--do_train",
+                "--task",
+                "nli",
+                "--dataset",
+                "./datasets/multinli_1.0/multinli_1.0_train.jsonl",
+                "--output_dir",
+                "./trained_model/mnli/",
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
         {
             "name": "Python: eval debug",
             "type": "python",
@@ -12,12 +28,16 @@
             "program": "${workspaceFolder}/run.py",
             "args": [
                 "--do_eval",
-                "--task", "nli",
+                "--task",
+                "nli",
                 //"--dataset", "./Breaking_NLI-master/data/dataset.jsonl",
-                "--dataset", "./multinli_1.0/multinli_1.0_dev_matched.jsonl",
+                "--dataset",
+                "./multinli_1.0/multinli_1.0_dev_matched.jsonl",
                 //"--dataset", "snli",
-                "--model", "./trained_model/",
-                "--output_dir", "./evals/eval_output_debug/",
+                "--model",
+                "./trained_model/",
+                "--output_dir",
+                "./evals/eval_output_debug/",
             ],
             "console": "integratedTerminal",
             "justMyCode": true

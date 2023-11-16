@@ -5,3 +5,6 @@ eval_output*/
 evals*/
 datasets/
 snli_model/
+snli_model.zip
+.vscode/
+launch.json

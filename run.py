@@ -106,6 +106,16 @@ def main():
         train_dataset = dataset['train']
         if args.max_train_samples:
             train_dataset = train_dataset.select(range(args.max_train_samples))
+
+        dataset_type1 = ['./datasets/multinli_1.0/multinli_1.0_train.jsonl']
+        
+        if args.dataset in dataset_type1:
+            # Chnage key value of sentence1 and sentence2 to premise and hypothesis
+            # map label to 0, 1, 2
+            train_dataset = train_dataset.map(
+                lambda ex: {'premise': ex['sentence1'], 'hypothesis': ex['sentence2'], 'label': 0 if ex['gold_label'] == 'entailment' else 1 if ex['gold_label'] == 'neutral' else 2},
+                remove_columns=train_dataset.column_names
+            )
         train_dataset_featurized = train_dataset.map(
             prepare_train_dataset,
             batched=True,
@@ -129,7 +139,7 @@ def main():
             )
         elif args.dataset == './heuristics_evaluation_set.jsonl':
             eval_dataset = eval_dataset.map(
-                lambda ex: {'premise': ex['sentence1'], 'hypothesis': ex['sentence2'], 'label': 0 if ex['gold_label'] == 'entailment' else 1 if ex['gold_label'] == 'non-entailment'},
+                lambda ex: {'premise': ex['sentence1'], 'hypothesis': ex['sentence2'], 'label': 0 if ex['gold_label'] == 'entailment' else 1},
                 remove_columns=eval_dataset.column_names
             )
 
