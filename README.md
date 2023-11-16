@@ -31,7 +31,7 @@ To train an ELECTRA-small model on the SNLI natural language inference dataset, 
 Checkpoints will be written to sub-folders of the `trained_model` output directory.
 To evaluate the final trained model on the SNLI dev set, you can use
 
-`py run.py --do_eval --task nli --dataset snli --model ./trained_model/ --output_dir ./eval_output/`
+`py run.py --do_eval --task nli --per_device_train_batch_size 64 --dataset ./datasets/heuristics_evaluation_set_500.jsonl --model ./trained_model/ --output_dir ./evals/small_output/`
 
 To prevent `run.py` from trying to use a GPU for training, pass the argument `--no_cuda`.
 

@@ -8,3 +8,4 @@ snli_model/
 snli_model.zip
 .vscode/
 launch.json
+zipped_models/

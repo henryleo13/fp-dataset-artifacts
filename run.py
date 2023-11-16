@@ -2,12 +2,39 @@ import datasets
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, \
     AutoModelForQuestionAnswering, Trainer, TrainingArguments, HfArgumentParser
 from helpers import prepare_dataset_nli, prepare_train_dataset_qa, \
-    prepare_validation_dataset_qa, QuestionAnsweringTrainer, compute_accuracy
+    prepare_validation_dataset_qa, QuestionAnsweringTrainer, compute_accuracy, compute_accuracy_hans
 import os
 import json
+import torch
 
 NUM_PREPROCESSING_WORKERS = 2
 
+# Create a subclass of Trainer and modify prediction_step
+# to encode 2 as 1, 1 as 1 and 0 as 0
+class MyTrainer(Trainer):
+    def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
+        """
+        Perform a prediction step on :obj:`model` and return the predictions and the loss.
+        Subclass and override to inject custom behavior.
+        Args:
+            model (:obj:`nn.Module`):
+                The model to evaluate.
+            inputs (:obj:`dict`):
+                The inputs and targets of the model.
+            prediction_loss_only (:obj:`bool`):
+                Whether or not to return the loss only.
+            ignore_keys (:obj:`List[str]`, `optional`):
+                A list of keys in the output of the model (if it's a dictionary) that should be ignored when gathering
+                predictions.
+        Return:
+            A tuple consisting of the loss, logits and labels (each being optional).
+        """
+        loss, logits, labels = super().prediction_step(model, inputs, prediction_loss_only, ignore_keys)
+
+        # Relabel 2 as 1
+        #labels = torch.where(labels == 2, 1, labels)
+
+        return loss, logits, labels
 
 def main():
     argp = HfArgumentParser(TrainingArguments)
@@ -49,6 +76,7 @@ def main():
 
     training_args, args = argp.parse_args_into_dataclasses()
 
+   
     # Dataset selection
     # IMPORTANT: this code path allows you to load custom datasets different from the standard SQuAD or SNLI ones.
     # You need to format the dataset appropriately. For SNLI, you can prepare a file with each line containing one
@@ -98,6 +126,13 @@ def main():
         # remove SNLI examples with no label
         dataset = dataset.filter(lambda ex: ex['label'] != -1)
     
+    dataset_type1 = ['./datasets/Breaking_NLI-master/data/dataset.jsonl', 
+                    './datasets/multinli_1.0/multinli_1.0_dev_matched.jsonl',
+                    './datasets/multinli_1.0/multinli_1.0_dev_mismatched.jsonl']
+    dataset_type2 = ['./datasets/heuristics_evaluation_set.jsonl',
+                    './datasets/heuristics_evaluation_set_2000.jsonl',
+                    './datasets/heuristics_evaluation_set_500.jsonl']
+    
     train_dataset = None
     eval_dataset = None
     train_dataset_featurized = None
@@ -126,10 +161,7 @@ def main():
         eval_dataset = dataset[eval_split]
         if args.max_eval_samples:
             eval_dataset = eval_dataset.select(range(args.max_eval_samples))
-        
-        dataset_type1 = ['./datasets/Breaking_NLI-master/data/dataset.jsonl', 
-                         './datasets/multinli_1.0/multinli_1.0_dev_matched.jsonl',
-                         './datasets/multinli_1.0/multinli_1.0_dev_mismatched.jsonl']
+
         if args.dataset in dataset_type1:
             # Chnage key value of sentence1 and sentence2 to premise and hypothesis
             # map label to 0, 1, 2
@@ -137,7 +169,7 @@ def main():
                 lambda ex: {'premise': ex['sentence1'], 'hypothesis': ex['sentence2'], 'label': 0 if ex['gold_label'] == 'entailment' else 1 if ex['gold_label'] == 'neutral' else 2},
                 remove_columns=eval_dataset.column_names
             )
-        elif args.dataset == './heuristics_evaluation_set.jsonl':
+        elif args.dataset in dataset_type2:
             eval_dataset = eval_dataset.map(
                 lambda ex: {'premise': ex['sentence1'], 'hypothesis': ex['sentence2'], 'label': 0 if ex['gold_label'] == 'entailment' else 1},
                 remove_columns=eval_dataset.column_names
@@ -152,6 +184,7 @@ def main():
 
     # Select the training configuration
     trainer_class = Trainer
+    #trainer_class = MyTrainer
     eval_kwargs = {}
     # If you want to use custom metrics, you should define your own "compute_metrics" function.
     # For an example of a valid compute_metrics function, see compute_accuracy in helpers.py.
@@ -165,7 +198,7 @@ def main():
         compute_metrics = lambda eval_preds: metric.compute(
             predictions=eval_preds.predictions, references=eval_preds.label_ids)
     elif args.task == 'nli':
-        compute_metrics = compute_accuracy
+        compute_metrics = compute_accuracy_hans if args.dataset in dataset_type2 else compute_accuracy
     
 
     # This function wraps the compute_metrics function, storing the model's predictions
@@ -226,7 +259,11 @@ def main():
                 for i, example in enumerate(eval_dataset):
                     example_with_prediction = dict(example)
                     example_with_prediction['predicted_scores'] = eval_predictions.predictions[i].tolist()
-                    example_with_prediction['predicted_label'] = int(eval_predictions.predictions[i].argmax())
+                    
+                    pred = eval_predictions.predictions[i].argmax()
+                    if args.dataset in dataset_type2:
+                        pred = 1 if pred == 2 else 0
+                    example_with_prediction['predicted_label'] = int(pred)
                     f.write(json.dumps(example_with_prediction))
                     f.write('\n')
 

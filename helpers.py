@@ -35,6 +35,17 @@ def compute_accuracy(eval_preds: EvalPrediction):
             np.float32).mean().item()
     }
 
+def compute_accuracy_hans(eval_preds: EvalPrediction):
+
+    preds = np.argmax(eval_preds.predictions, axis=1)
+    # relabel the predictions to be consistent with the original HANS labels
+    preds[preds == 2] = 1
+
+    return {
+        'accuracy': (preds == eval_preds.label_ids).astype(
+            np.float32).mean().item()
+    }
+
 
 # This function preprocesses a question answering dataset, tokenizing the question and context text
 # and finding the right offsets for the answer spans in the tokenized context (to use as labels).
