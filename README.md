@@ -27,6 +27,7 @@ To train an ELECTRA-small model on the SNLI natural language inference dataset, 
 
 `py run.py --do_train --task nli --dataset snli --output_dir ./trained_model/`
 `py run.py --do_train --task nli --dataset ./datasets/multinli_1.0/multinli_1.0_train.jsonl --output_dir ./trained_model/`
+`py run.py --do_train --task nli --dataset ./datasets/multinli_1.0/multinli_1.0_train.jsonl --output_dir ./biased_model/`
 
 Checkpoints will be written to sub-folders of the `trained_model` output directory.
 To evaluate the final trained model on the SNLI dev set, you can use

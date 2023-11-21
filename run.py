@@ -1,11 +1,10 @@
 import datasets
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, \
-    AutoModelForQuestionAnswering, Trainer, TrainingArguments, HfArgumentParser
+    AutoModelForQuestionAnswering, Trainer, TrainerControl, TrainerState, TrainingArguments, HfArgumentParser, TrainerCallback
 from helpers import prepare_dataset_nli, prepare_train_dataset_qa, \
-    prepare_validation_dataset_qa, QuestionAnsweringTrainer, compute_accuracy, compute_accuracy_hans
-import os
-import json
-import torch
+    prepare_validation_dataset_qa, QuestionAnsweringTrainer, compute_accuracy, compute_accuracy_hans, compute_accuracy_and_c_above90
+import os, time, json, torch
+from transformers.trainer_utils import speed_metrics
 
 NUM_PREPROCESSING_WORKERS = 2
 
@@ -29,12 +28,59 @@ class MyTrainer(Trainer):
         Return:
             A tuple consisting of the loss, logits and labels (each being optional).
         """
-        loss, logits, labels = super().prediction_step(model, inputs, prediction_loss_only, ignore_keys)
+        #loss, logits, labels = super().prediction_step(model, inputs, prediction_loss_only, ignore_keys)
 
         # Relabel 2 as 1
         #labels = torch.where(labels == 2, 1, labels)
 
-        return loss, logits, labels
+        return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys)
+    
+    def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
+        """
+        Run evaluation and returns metrics.
+        Will return a namedtuple with the following keys:
+        - loss: scalar
+        - metrics: dict of (string, float) with the metric name as key and the metric's value as the value.
+        Args:
+            eval_dataset (:obj:`Dataset`, `optional`):
+                Pass a dataset if you wish to override :obj:`self.eval_dataset`. Otherwise, it will default to
+                :obj:`self.eval_dataset`.
+            ignore_keys (:obj:`List[str]`, `optional`):
+                A list of keys in the output of the model (if it's a dictionary) that should be ignored when gathering
+                predictions.
+            metric_key_prefix (:obj:`str`, `optional`, defaults to :obj:`"eval"`):
+                An optional prefix to be used as the metrics key prefix. For example the metrics "bleu" will be named
+                "eval_bleu" if the prefix is "eval".
+        """
+        eval_dataloader = self.get_eval_dataloader(eval_dataset)
+        start_time = time.time()
+        eval_loop = self.prediction_loop if self.args.use_legacy_prediction_loop else self.evaluation_loop
+        output = eval_loop(
+            eval_dataloader,
+            description="Evaluation",
+            ignore_keys=ignore_keys,
+            metric_key_prefix=metric_key_prefix,
+        )
+        total_batch_size = self.args.eval_batch_size * self.args.world_size
+        output.metrics.update(speed_metrics(metric_key_prefix, start_time, output.num_samples * 1000 / total_batch_size))
+        self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
+        return output.metrics
+    
+class AccuracyCallback(TrainerCallback):
+    def __init__(self, eval_steps, logging_steps):
+        self.eval_steps = eval_steps
+        self.logging_steps = logging_steps
+
+    def on_train_begin(self, args, stage, control, **kwargs):
+        print("Starting Training!")
+
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step % self.eval_steps == 0:
+            control.should_evaluate = True
+
+    def on_evaluate(self, args, state, control, metrics, **kwargs):
+        print("Evaluation results:", metrics)
+        return control
 
 def main():
     argp = HfArgumentParser(TrainingArguments)
@@ -74,6 +120,7 @@ def main():
     argp.add_argument('--max_eval_samples', type=int, default=None,
                       help='Limit the number of examples to evaluate on.')
 
+
     training_args, args = argp.parse_args_into_dataclasses()
 
    
@@ -90,6 +137,12 @@ def main():
         # so if we want to use a jsonl file for evaluation we need to get the "train" split
         # from the loaded dataset
         eval_split = 'train'
+
+        # if args.output_dir == "./biased_model/" then split the dataset into train and eval, 2k in train and 0.5k in eval
+        if training_args.output_dir == "./biased_model/":
+            dataset = dataset['train'].train_test_split(test_size=500, shuffle=True)
+            dataset['train'] = dataset['train'].train_test_split(train_size=2000, shuffle=True)['train']
+            eval_split = 'test'
     else:
         default_datasets = {'qa': ('squad',), 'nli': ('snli',)}
         dataset_id = tuple(args.dataset.split(':')) if args.dataset is not None else \
@@ -126,7 +179,8 @@ def main():
         # remove SNLI examples with no label
         dataset = dataset.filter(lambda ex: ex['label'] != -1)
     
-    dataset_type1 = ['./datasets/Breaking_NLI-master/data/dataset.jsonl', 
+    dataset_type1 = ['./datasets/multinli_1.0/multinli_1.0_train.jsonl',
+                     './datasets/Breaking_NLI-master/data/dataset.jsonl', 
                     './datasets/multinli_1.0/multinli_1.0_dev_matched.jsonl',
                     './datasets/multinli_1.0/multinli_1.0_dev_mismatched.jsonl']
     dataset_type2 = ['./datasets/heuristics_evaluation_set.jsonl',
@@ -141,8 +195,6 @@ def main():
         train_dataset = dataset['train']
         if args.max_train_samples:
             train_dataset = train_dataset.select(range(args.max_train_samples))
-
-        dataset_type1 = ['./datasets/multinli_1.0/multinli_1.0_train.jsonl']
         
         if args.dataset in dataset_type1:
             # Chnage key value of sentence1 and sentence2 to premise and hypothesis
@@ -183,8 +235,8 @@ def main():
         )
 
     # Select the training configuration
-    trainer_class = Trainer
-    #trainer_class = MyTrainer
+    #trainer_class = Trainer
+    trainer_class = MyTrainer
     eval_kwargs = {}
     # If you want to use custom metrics, you should define your own "compute_metrics" function.
     # For an example of a valid compute_metrics function, see compute_accuracy in helpers.py.
@@ -198,7 +250,10 @@ def main():
         compute_metrics = lambda eval_preds: metric.compute(
             predictions=eval_preds.predictions, references=eval_preds.label_ids)
     elif args.task == 'nli':
-        compute_metrics = compute_accuracy_hans if args.dataset in dataset_type2 else compute_accuracy
+        if training_args.output_dir == "./biased_model/":
+            compute_metrics = compute_accuracy_and_c_above90
+        else: 
+            compute_metrics = compute_accuracy_hans if args.dataset in dataset_type2 else compute_accuracy
     
 
     # This function wraps the compute_metrics function, storing the model's predictions
@@ -216,7 +271,8 @@ def main():
         train_dataset=train_dataset_featurized,
         eval_dataset=eval_dataset_featurized,
         tokenizer=tokenizer,
-        compute_metrics=compute_metrics_and_store_predictions
+        compute_metrics=compute_metrics_and_store_predictions,
+        callbacks = [AccuracyCallback(eval_steps=500, logging_steps=500)],
     )
     # Train and/or evaluate
     if training_args.do_train:

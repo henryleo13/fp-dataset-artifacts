@@ -1,10 +1,11 @@
 import numpy as np
-import collections
+import collections, torch
 from collections import defaultdict, OrderedDict
 from transformers import Trainer, EvalPrediction
 from transformers.trainer_utils import PredictionOutput
 from typing import Tuple
 from tqdm.auto import tqdm
+from scipy.special import softmax
 
 QA_MAX_ANSWER_LENGTH = 30
 
@@ -46,6 +47,19 @@ def compute_accuracy_hans(eval_preds: EvalPrediction):
             np.float32).mean().item()
     }
 
+def compute_accuracy_and_c_above90(eval_preds: EvalPrediction):
+    preds = np.argmax(eval_preds.predictions, axis=1)
+    # relabel the predictions to be consistent with the original HANS labels
+    p_entailment = softmax(eval_preds[0], axis = 1)[:, 0]
+    p_nonentailment = 1 - p_entailment
+    max_confidence = np.maximum(p_entailment, p_nonentailment)
+ 
+
+    return {
+        'accuracy': (preds == eval_preds.label_ids).astype(
+            np.float32).mean().item(),
+        'c_above90': np.mean(max_confidence > 0.9)
+    }
 
 # This function preprocesses a question answering dataset, tokenizing the question and context text
 # and finding the right offsets for the answer spans in the tokenized context (to use as labels).
