@@ -5,23 +5,43 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: debias train debug",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run.py",
+            "args": [
+                "--do_train",
+                //"--do_eval",
+                "--task",
+                "nli",
+                "--per_device_train_batch_size",
+                "16",
+                "--dataset",
+                "./datasets/multinli_1.0/multinli_1.0_train.jsonl",
+                "--output_dir",
+                "./student_model/",
+                "--biased_model",
+                "./biased_model/"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
             "name": "Python: train debug",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/run.py",
             "args": [
                 "--do_train",
-                "--do_eval",
+                //"--do_eval",
                 "--task",
                 "nli",
-                "--per_device_train_batch_size", 
-                "1",
+                "--per_device_train_batch_size",
+                "16",
                 "--dataset",
                 "./datasets/multinli_1.0/multinli_1.0_train.jsonl",
                 "--output_dir",
-                "./biased_model/",
-                "--logging_dir",
-                "./biased_model/logs/"
+                "./biased_model/"
             ],
             "console": "integratedTerminal",
             "justMyCode": true
@@ -35,7 +55,7 @@
                 "--do_eval",
                 "--task",
                 "nli",
-                "--dataset", 
+                "--dataset",
                 //"./Breaking_NLI-master/data/dataset.jsonl",
                 //"./multinli_1.0/multinli_1.0_dev_matched.jsonl",
                 //"snli",

@@ -5,36 +5,20 @@ from helpers import prepare_dataset_nli, prepare_train_dataset_qa, \
     prepare_validation_dataset_qa, QuestionAnsweringTrainer, compute_accuracy, compute_accuracy_hans, compute_accuracy_and_c_above90
 import os, time, json, torch
 from transformers.trainer_utils import speed_metrics
+import torch.nn.functional as F
 
 NUM_PREPROCESSING_WORKERS = 2
 
 # Create a subclass of Trainer and modify prediction_step
 # to encode 2 as 1, 1 as 1 and 0 as 0
 class MyTrainer(Trainer):
-    def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
-        """
-        Perform a prediction step on :obj:`model` and return the predictions and the loss.
-        Subclass and override to inject custom behavior.
-        Args:
-            model (:obj:`nn.Module`):
-                The model to evaluate.
-            inputs (:obj:`dict`):
-                The inputs and targets of the model.
-            prediction_loss_only (:obj:`bool`):
-                Whether or not to return the loss only.
-            ignore_keys (:obj:`List[str]`, `optional`):
-                A list of keys in the output of the model (if it's a dictionary) that should be ignored when gathering
-                predictions.
-        Return:
-            A tuple consisting of the loss, logits and labels (each being optional).
-        """
-        #loss, logits, labels = super().prediction_step(model, inputs, prediction_loss_only, ignore_keys)
+    def __init__(self, biased_model, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-        # Relabel 2 as 1
-        #labels = torch.where(labels == 2, 1, labels)
+        if biased_model:
+            self.biased_model = biased_model
+            self.biased_model = self.biased_model.to(self.args.device)
 
-        return super().prediction_step(model, inputs, prediction_loss_only, ignore_keys)
-    
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
         """
         Run evaluation and returns metrics.
@@ -65,6 +49,41 @@ class MyTrainer(Trainer):
         output.metrics.update(speed_metrics(metric_key_prefix, start_time, output.num_samples * 1000 / total_batch_size))
         self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
         return output.metrics
+
+
+class DebiasTrainer(Trainer):
+    def __init__(self, biased_model, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if biased_model:
+            self.biased_model = biased_model
+            self.biased_model = self.biased_model.to(self.args.device)
+
+        # Freeze biased_model
+        for param in self.biased_model.parameters():
+            param.requires_grad = False
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        """
+        How the loss is computed by Trainer. By default, all models return the loss in the first element.
+        Subclass and override for custom behavior.
+        """
+
+        labels = inputs['labels']
+        outputs = model(**inputs)
+        output_logits = outputs[1]
+
+        biased_outputs = self.biased_model(**inputs)
+        biased_logits = biased_outputs[1]
+
+        PoE_Loss = self.ensemble_loss(output_logits, biased_logits, labels)
+
+        return (PoE_Loss, outputs) if return_outputs else PoE_Loss
+    
+    def ensemble_loss(self, output_logits, biased_logits, labels):
+
+        # Compute Product-of-Experts loss
+        return F.cross_entropy(output_logits + biased_logits, labels)  
     
 class AccuracyCallback(TrainerCallback):
     def __init__(self, eval_steps, logging_steps):
@@ -81,6 +100,7 @@ class AccuracyCallback(TrainerCallback):
     def on_evaluate(self, args, state, control, metrics, **kwargs):
         print("Evaluation results:", metrics)
         return control
+
 
 def main():
     argp = HfArgumentParser(TrainingArguments)
@@ -119,6 +139,11 @@ def main():
                       help='Limit the number of examples to train on.')
     argp.add_argument('--max_eval_samples', type=int, default=None,
                       help='Limit the number of examples to evaluate on.')
+    
+    # Add arguments for biased model
+    argp.add_argument('--biased_model', type=str, default=None,
+                        help="""This argument specifies the biased modele.
+            This should be a path to a saved model checkpoint (a folder containing config.json and pytorch_model.bin).""")
 
 
     training_args, args = argp.parse_args_into_dataclasses()
@@ -140,8 +165,8 @@ def main():
 
         # if args.output_dir == "./biased_model/" then split the dataset into train and eval, 2k in train and 0.5k in eval
         if training_args.output_dir == "./biased_model/":
-            dataset = dataset['train'].train_test_split(test_size=500, shuffle=True)
-            dataset['train'] = dataset['train'].train_test_split(train_size=2000, shuffle=True)['train']
+            dataset = dataset['train'].train_test_split(test_size=50, shuffle=True)
+            dataset['train'] = dataset['train'].train_test_split(train_size=200, shuffle=True)['train']
             eval_split = 'test'
     else:
         default_datasets = {'qa': ('squad',), 'nli': ('snli',)}
@@ -162,6 +187,11 @@ def main():
     # Initialize the model and tokenizer from the specified pretrained model/checkpoint
     model = model_class.from_pretrained(args.model, **task_kwargs)
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=True)
+
+    # Load the biased model and tokenizer from the specified pretrained model/checkpoint
+    biased_model = None
+    if args.biased_model is not None:
+        biased_model = model_class.from_pretrained(args.biased_model, **task_kwargs)
 
     # Select the dataset preprocessing function (these functions are defined in helpers.py)
     if args.task == 'qa':
@@ -235,8 +265,16 @@ def main():
         )
 
     # Select the training configuration
-    #trainer_class = Trainer
-    trainer_class = MyTrainer
+
+    if args.biased_model is not None:
+        trainer_class = DebiasTrainer
+    else:
+        #trainer_class = Trainer
+        trainer_class = MyTrainer
+
+
+    #if training_args.output_dir == "./student_model/":
+
     eval_kwargs = {}
     # If you want to use custom metrics, you should define your own "compute_metrics" function.
     # For an example of a valid compute_metrics function, see compute_accuracy in helpers.py.
@@ -265,14 +303,16 @@ def main():
         return compute_metrics(eval_preds)
 
     # Initialize the Trainer object with the specified arguments and the model and dataset we loaded above
+    callbacks = [AccuracyCallback(eval_steps=500, logging_steps=500)] if training_args.do_eval else None
     trainer = trainer_class(
         model=model,
+        biased_model=biased_model,
         args=training_args,
         train_dataset=train_dataset_featurized,
         eval_dataset=eval_dataset_featurized,
         tokenizer=tokenizer,
         compute_metrics=compute_metrics_and_store_predictions,
-        callbacks = [AccuracyCallback(eval_steps=500, logging_steps=500)],
+        callbacks = callbacks
     )
     # Train and/or evaluate
     if training_args.do_train:

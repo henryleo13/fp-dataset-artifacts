@@ -11,3 +11,5 @@ launch.json
 zipped_models/
 biased_model/
 mnli_on_hans.png
+student_model/
+training_model/
