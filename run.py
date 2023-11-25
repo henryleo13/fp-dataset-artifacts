@@ -1,3 +1,4 @@
+from typing import Dict
 import datasets
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, \
     AutoModelForQuestionAnswering, Trainer, TrainerControl, TrainerState, TrainingArguments, HfArgumentParser, TrainerCallback
@@ -19,7 +20,7 @@ class MyTrainer(Trainer):
             self.biased_model = biased_model
             self.biased_model = self.biased_model.to(self.args.device)
 
-    def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
+    #def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
         """
         Run evaluation and returns metrics.
         Will return a namedtuple with the following keys:
@@ -36,7 +37,7 @@ class MyTrainer(Trainer):
                 An optional prefix to be used as the metrics key prefix. For example the metrics "bleu" will be named
                 "eval_bleu" if the prefix is "eval".
         """
-        eval_dataloader = self.get_eval_dataloader(eval_dataset)
+        """ eval_dataloader = self.get_eval_dataloader(eval_dataset)
         start_time = time.time()
         eval_loop = self.prediction_loop if self.args.use_legacy_prediction_loop else self.evaluation_loop
         output = eval_loop(
@@ -48,7 +49,10 @@ class MyTrainer(Trainer):
         total_batch_size = self.args.eval_batch_size * self.args.world_size
         output.metrics.update(speed_metrics(metric_key_prefix, start_time, output.num_samples * 1000 / total_batch_size))
         self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
-        return output.metrics
+        #self.log_metrics('eval', output.metrics)
+        #self.save_metrics('eval', output.metrics)
+        return output.metrics """
+
 
 
 class DebiasTrainer(Trainer):
@@ -93,13 +97,16 @@ class AccuracyCallback(TrainerCallback):
     def on_train_begin(self, args, stage, control, **kwargs):
         print("Starting Training!")
 
-    def on_step_end(self, args, state, control, **kwargs):
-        if state.global_step % self.eval_steps == 0:
-            control.should_evaluate = True
+    #def on_step_end(self, args, state, control, **kwargs):
+    #    if state.global_step % self.eval_steps == 0:
+    #        control.should_evaluate = True
 
     def on_evaluate(self, args, state, control, metrics, **kwargs):
         print("Evaluation results:", metrics)
+        #control.should_save = True
         return control
+    
+
 
 
 def main():
@@ -139,11 +146,16 @@ def main():
                       help='Limit the number of examples to train on.')
     argp.add_argument('--max_eval_samples', type=int, default=None,
                       help='Limit the number of examples to evaluate on.')
+    argp.add_argument('--train_size', type=int, default=200,
+                      help='Limit the number of examples to train on.')
+    argp.add_argument('--eval_size', type=int, default=50,
+                      help='Limit the number of examples to evaluate on.')
     
     # Add arguments for biased model
     argp.add_argument('--biased_model', type=str, default=None,
                         help="""This argument specifies the biased modele.
             This should be a path to a saved model checkpoint (a folder containing config.json and pytorch_model.bin).""")
+
 
 
     training_args, args = argp.parse_args_into_dataclasses()
@@ -165,8 +177,10 @@ def main():
 
         # if args.output_dir == "./biased_model/" then split the dataset into train and eval, 2k in train and 0.5k in eval
         if training_args.output_dir == "./biased_model/":
-            dataset = dataset['train'].train_test_split(test_size=50, shuffle=True)
-            dataset['train'] = dataset['train'].train_test_split(train_size=200, shuffle=True)['train']
+            # set seed
+            torch.manual_seed(42)
+            dataset = dataset['train'].train_test_split(test_size=args.eval_size, shuffle=True)
+            dataset['train'] = dataset['train'].train_test_split(train_size=args.train_size, shuffle=True)['train']
             eval_split = 'test'
     else:
         default_datasets = {'qa': ('squad',), 'nli': ('snli',)}
@@ -303,7 +317,16 @@ def main():
         return compute_metrics(eval_preds)
 
     # Initialize the Trainer object with the specified arguments and the model and dataset we loaded above
-    callbacks = [AccuracyCallback(eval_steps=500, logging_steps=500)] if training_args.do_eval else None
+    callbacks = None
+    step_size = int(512 / (training_args.per_device_train_batch_size))
+    if training_args.do_eval:
+        #callbacks = [AccuracyCallback(eval_steps=200, logging_steps=200)]
+        training_args.evaluation_strategy="steps"
+        training_args.logging_strategy = "steps"
+        training_args.save_strategy = "epoch"
+        training_args.eval_steps = step_size
+        training_args.logging_steps = step_size
+    
     trainer = trainer_class(
         model=model,
         biased_model=biased_model,

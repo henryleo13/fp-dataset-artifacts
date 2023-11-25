@@ -5,6 +5,20 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: tf_summary debug",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tf_summary.py",
+            "args": [
+                "--summary_path",
+                "./biased_model/runs/Nov25_10-30-43_LEO-DESKTOP/"
+                //"./trained_model/biased_model_70acc_83a90/runs/Nov21_12-49-48_7e5bccd441a1/events.out.tfevents.1700570996.7e5bccd441a1.6326.0",
+                //"./student_model/runs/Nov24_13-42-49_LEO-DESKTOP/events.out.tfevents.1700856754.4c13487ad739.3804.0",
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
             "name": "Python: debias train debug",
             "type": "python",
             "request": "launch",
@@ -21,7 +35,7 @@
                 "--output_dir",
                 "./student_model/",
                 "--biased_model",
-                "./biased_model/"
+                "./trained_model/biased_model_70acc_83a90/"
             ],
             "console": "integratedTerminal",
             "justMyCode": true
@@ -33,11 +47,11 @@
             "program": "${workspaceFolder}/run.py",
             "args": [
                 "--do_train",
-                //"--do_eval",
+                "--do_eval",
                 "--task",
                 "nli",
                 "--per_device_train_batch_size",
-                "16",
+                "1",
                 "--dataset",
                 "./datasets/multinli_1.0/multinli_1.0_train.jsonl",
                 "--output_dir",
