@@ -176,7 +176,8 @@ def main():
         eval_split = 'train'
 
         # if args.output_dir == "./biased_model/" then split the dataset into train and eval, 2k in train and 0.5k in eval
-        if training_args.output_dir == "./biased_model/":
+        # if output_dir contains 'biased_model' so biaosed_model_xx 
+        if training_args.output_dir.find("biased_model") >= 0:
             # set seed
             torch.manual_seed(42)
             dataset = dataset['train'].train_test_split(test_size=args.eval_size, shuffle=True)
@@ -302,7 +303,7 @@ def main():
         compute_metrics = lambda eval_preds: metric.compute(
             predictions=eval_preds.predictions, references=eval_preds.label_ids)
     elif args.task == 'nli':
-        if training_args.output_dir == "./biased_model/":
+        if training_args.output_dir.find("biased_model") >= 0:
             compute_metrics = compute_accuracy_and_c_above90
         else: 
             compute_metrics = compute_accuracy_hans if args.dataset in dataset_type2 else compute_accuracy
@@ -318,8 +319,9 @@ def main():
 
     # Initialize the Trainer object with the specified arguments and the model and dataset we loaded above
     callbacks = None
-    step_size = int(512 / (training_args.per_device_train_batch_size))
+    
     if training_args.do_eval:
+        step_size = int(args.train_size / (training_args.per_device_train_batch_size) / 4)
         #callbacks = [AccuracyCallback(eval_steps=200, logging_steps=200)]
         training_args.evaluation_strategy="steps"
         training_args.logging_strategy = "steps"

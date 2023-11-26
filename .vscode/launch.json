@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/tf_summary.py",
             "args": [
                 "--summary_path",
-                "./biased_model/runs/Nov25_10-30-43_LEO-DESKTOP/"
+                "./trained_model/biased_model_20k/runs/"
                 //"./trained_model/biased_model_70acc_83a90/runs/Nov21_12-49-48_7e5bccd441a1/events.out.tfevents.1700570996.7e5bccd441a1.6326.0",
                 //"./student_model/runs/Nov24_13-42-49_LEO-DESKTOP/events.out.tfevents.1700856754.4c13487ad739.3804.0",
             ],
@@ -55,7 +55,11 @@
                 "--dataset",
                 "./datasets/multinli_1.0/multinli_1.0_train.jsonl",
                 "--output_dir",
-                "./biased_model/"
+                "./biased_model/",
+                "--train_size",
+                "200",
+                "--eval_size",
+                "50"
             ],
             "console": "integratedTerminal",
             "justMyCode": true

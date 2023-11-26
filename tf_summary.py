@@ -56,7 +56,7 @@ def main(args):
                         if len(epoch) == 0 or value.simple_value != epoch[-1]:
                             epoch.append(value.simple_value)
                     
-                    print(value.tag, value.simple_value)
+                    #print(value.tag, value.simple_value)
 
         # Save epoch, loss, acc, c_above_90 to csv
         
