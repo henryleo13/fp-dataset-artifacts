@@ -6,9 +6,13 @@ library(jsonlite)
 library(tidyverse)
 library(ggthemes)
 library(patchwork)
+library(rio)
 
 # Type dir in console
 dir <- "D:/OneDrive/MSDS/Natural_Language_Processing/fp-dataset-artifacts/"
+
+
+#### Data set Analysis ####
 eval_names <- c("dev_matched", "dev_mismatched", "hans", "mnli_train")
 eval_locs <- c("mnli_on_dev_matched", "mnli_on_dev_mismatched", "mnli_on_hans", "mnli_on_train") %>%
   str_c(dir, "evals/", ., "/eval_predictions.jsonl")
@@ -161,6 +165,69 @@ patchwork1 + plot_annotation()
 df |> 
   filter(eval_name %in% c("dev_matched", "dev_mismatched")) |> 
   filter(correct == 0) |> 
-  select(premise, hypothesis, gold_label, pred_label, eval_name) |> 
-  view()
-  #write_csv(str_c(dir, "evals/incorrect_dev.csv"))
+  select(premise, hypothesis, gold_label, pred_label, eval_name) #|> 
+  #export(str_c(dir, "evals/incorrect_dev.csv"))
+
+
+#### Biased Model Performance ####
+file_with_path <- list.files(path = str_c(dir, "plotting_data"), pattern = ".csv", full.names = T)
+file_names <- list.files(path = str_c(dir, "plotting_data"), pattern = ".csv")
+
+load_metric_data <- function (file_path, file_name) {
+  df <- import(file_path) |> 
+    mutate(file_name = file_name)
+}
+df_eval_metrics <- map2(file_with_path, file_names, load_metric_data) |> 
+  bind_rows()
+
+df_eval_metrics |> 
+  mutate(
+    training_samples = str_extract(file_name, "[0-9]+") |> as.numeric(),
+    training_samples_text = factor(str_c(training_samples, "k"))|> fct_reorder(training_samples)
+  ) |> 
+  ggplot(aes(x= epoch, y = acc, color = training_samples_text)) +
+  geom_line(size = 1) +
+  scale_color_colorblind(
+    name = "Training Samples",
+    #labels = c("5k", "10k", "15k", "20k")
+  ) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    expand = expansion(mult = 0),
+    name = "Accuracy",
+    labels = scales::percent,
+    breaks = seq(0, 1, 0.1)
+  ) +
+  scale_x_continuous(
+    limits = c(0, 10),
+    expand = expansion(mult = 0),
+    name = "Epoch",
+    breaks = seq(0, 10, 1)
+  ) +
+  cowplot::theme_minimal_grid()
+
+df_eval_metrics |> 
+  mutate(
+    training_samples = str_extract(file_name, "[0-9]+") |> as.numeric(),
+    training_samples_text = factor(str_c(training_samples, "k")) |> fct_reorder(training_samples)
+  ) |> 
+  ggplot(aes(x= epoch, y = c_above_90, color = training_samples_text)) +
+  geom_line(size = 1) +
+  scale_color_colorblind(
+    name = "Training Samples",
+    #labels = c("5k", "10k", "15k", "20k")
+  ) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    expand = expansion(mult = 0),
+    name = "c above 90",
+    labels = scales::percent,
+    breaks = seq(0, 1, 0.1)
+  ) +
+  scale_x_continuous(
+    limits = c(0, 10),
+    expand = expansion(mult = 0),
+    name = "Epoch",
+    breaks = seq(0, 10, 1)
+  ) +
+  cowplot::theme_minimal_grid()

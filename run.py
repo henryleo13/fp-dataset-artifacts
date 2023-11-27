@@ -7,14 +7,16 @@ from helpers import prepare_dataset_nli, prepare_train_dataset_qa, \
 import os, time, json, torch
 from transformers.trainer_utils import speed_metrics
 import torch.nn.functional as F
+import numpy as np
 
 NUM_PREPROCESSING_WORKERS = 2
 
 # Create a subclass of Trainer and modify prediction_step
 # to encode 2 as 1, 1 as 1 and 0 as 0
 class MyTrainer(Trainer):
-    def __init__(self, biased_model, *args, **kwargs):
+    def __init__(self, biased_model, min_theta, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.min_theta = min_theta
 
         if biased_model:
             self.biased_model = biased_model
@@ -56,8 +58,11 @@ class MyTrainer(Trainer):
 
 
 class DebiasTrainer(Trainer):
-    def __init__(self, biased_model, *args, **kwargs):
+    def __init__(self, biased_model, min_theta, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.current_step = 0
+        self.min_theta = min_theta
+        self.num_steps_per_epoch = len(self.train_dataset) // self.args.per_device_train_batch_size
 
         if biased_model:
             self.biased_model = biased_model
@@ -86,8 +91,25 @@ class DebiasTrainer(Trainer):
     
     def ensemble_loss(self, output_logits, biased_logits, labels):
 
+        if self.min_theta != 1.0:
+            current_theta = self.get_current_theta()
+            biased_probs = F.softmax(biased_logits, dim=1)
+            denom = (biased_probs ** current_theta).sum(1).unsqueeze(1).expand_as(biased_probs)
+            scaled_probs = (biased_probs ** current_theta) / denom
+            biased_logits = torch.log(scaled_probs)
+        
         # Compute Product-of-Experts loss
         return F.cross_entropy(output_logits + biased_logits, labels)  
+    
+    # The following is modified from github
+    # https://github.com/UKPLab/emnlp2020-debiasing-unknown/blob/main/src/clf_distill_loss_functions.py
+
+    def get_current_theta(self):
+        total_steps = int(self.num_steps_per_epoch * self.args.num_train_epochs + self.args.num_train_epochs)
+        linspace_theta = np.linspace(1.0, self.min_theta, total_steps)
+        current_theta = linspace_theta[self.current_step]
+        self.current_step += 1
+        return current_theta
     
 class AccuracyCallback(TrainerCallback):
     def __init__(self, eval_steps, logging_steps):
@@ -155,6 +177,10 @@ def main():
     argp.add_argument('--biased_model', type=str, default=None,
                         help="""This argument specifies the biased modele.
             This should be a path to a saved model checkpoint (a folder containing config.json and pytorch_model.bin).""")
+    
+    # Add argument for biased model: Theta
+    argp.add_argument('--min_theta', type=float, default=1.0,
+                        help="""This argument specifies theta when annealing""")
 
 
 
@@ -283,9 +309,11 @@ def main():
 
     if args.biased_model is not None:
         trainer_class = DebiasTrainer
+        print('Trainer Type: DebiasTrainer')
     else:
         #trainer_class = Trainer
         trainer_class = MyTrainer
+        print('Trainer Type: MyTrainer')
 
 
     #if training_args.output_dir == "./student_model/":
@@ -321,7 +349,7 @@ def main():
     callbacks = None
     
     if training_args.do_eval:
-        step_size = int(args.train_size / (training_args.per_device_train_batch_size) / 4)
+        step_size = int(args.train_size / (training_args.per_device_train_batch_size) / 2)
         #callbacks = [AccuracyCallback(eval_steps=200, logging_steps=200)]
         training_args.evaluation_strategy="steps"
         training_args.logging_strategy = "steps"
@@ -332,6 +360,7 @@ def main():
     trainer = trainer_class(
         model=model,
         biased_model=biased_model,
+        min_theta = args.min_theta,
         args=training_args,
         train_dataset=train_dataset_featurized,
         eval_dataset=eval_dataset_featurized,
