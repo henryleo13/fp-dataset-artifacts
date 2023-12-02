@@ -11,7 +11,8 @@
             "program": "${workspaceFolder}/tf_summary.py",
             "args": [
                 "--summary_path",
-                "./evals/mnli_on_hans/runs/"
+                //"./evals/mnli_on_hans/runs/"
+                "./biased_model/runs/Dec02_08-28-24_LEO-DESKTOP/"
                 //"./trained_model/biased_model_70acc_83a90/runs/Nov21_12-49-48_7e5bccd441a1/events.out.tfevents.1700570996.7e5bccd441a1.6326.0",
                 //"./student_model/runs/Nov24_13-42-49_LEO-DESKTOP/events.out.tfevents.1700856754.4c13487ad739.3804.0",
             ],
@@ -61,7 +62,9 @@
                 "--train_size",
                 "200",
                 "--eval_size",
-                "50"
+                "50",
+                "--synthetic_data",
+                "True"
             ],
             "console": "integratedTerminal",
             "justMyCode": true

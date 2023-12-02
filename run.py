@@ -14,15 +14,17 @@ NUM_PREPROCESSING_WORKERS = 2
 # Create a subclass of Trainer and modify prediction_step
 # to encode 2 as 1, 1 as 1 and 0 as 0
 class MyTrainer(Trainer):
-    def __init__(self, biased_model, min_theta, *args, **kwargs):
+    def __init__(self, biased_model, min_theta, eval_dataset_bias, eval_dataset_antibias,  *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.min_theta = min_theta
+        self.eval_dataset_bias = eval_dataset_bias
+        self.eval_dataset_antibias = eval_dataset_antibias
 
         if biased_model:
             self.biased_model = biased_model
             self.biased_model = self.biased_model.to(self.args.device)
 
-    #def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
+    def evaluate(self, eval_dataset=None, ignore_keys=None):
         """
         Run evaluation and returns metrics.
         Will return a namedtuple with the following keys:
@@ -39,7 +41,8 @@ class MyTrainer(Trainer):
                 An optional prefix to be used as the metrics key prefix. For example the metrics "bleu" will be named
                 "eval_bleu" if the prefix is "eval".
         """
-        """ eval_dataloader = self.get_eval_dataloader(eval_dataset)
+    
+        """eval_dataloader = self.get_eval_dataloader(eval_dataset)
         start_time = time.time()
         eval_loop = self.prediction_loop if self.args.use_legacy_prediction_loop else self.evaluation_loop
         output = eval_loop(
@@ -50,10 +53,43 @@ class MyTrainer(Trainer):
         )
         total_batch_size = self.args.eval_batch_size * self.args.world_size
         output.metrics.update(speed_metrics(metric_key_prefix, start_time, output.num_samples * 1000 / total_batch_size))
+
+        # Add bias and antibias metrics
+        if self.eval_dataset_bias is not None:
+            bias_prefix = metric_key_prefix + "_bias"
+            start_time = time.time()
+            output_bias = self.evaluation_loop(
+                self.get_eval_dataloader(self.eval_dataset_bias),
+                description="Evaluation Bias",
+                ignore_keys=ignore_keys,
+                metric_key_prefix=bias_prefix,
+            )
+            output_bias.metrics.update(speed_metrics(bias_prefix, start_time, output_bias.num_samples * 1000 / total_batch_size))
+            output.metrics.update(output_bias.metrics)
+
+        if self.eval_dataset_antibias is not None:
+            antibias_prefix = metric_key_prefix + "_antibias"
+            start_time = time.time()
+            output_antibias = self.evaluation_loop(
+                self.get_eval_dataloader(self.eval_dataset_antibias),
+                description="Evaluation Antibias",
+                ignore_keys=ignore_keys,
+                metric_key_prefix=antibias_prefix,
+            )
+            output_antibias.metrics.update(speed_metrics(antibias_prefix, start_time, output_antibias.num_samples * 1000 / total_batch_size))
+            output.metrics.update(output_antibias.metrics)
+
         self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
         #self.log_metrics('eval', output.metrics)
-        #self.save_metrics('eval', output.metrics)
-        return output.metrics """
+        #self.save_metrics('eval', output.metrics, False)
+        return output.metrics"""
+        output = super().evaluate(eval_dataset, ignore_keys=ignore_keys)
+        output_bias = super().evaluate(self.eval_dataset_bias, ignore_keys=ignore_keys, metric_key_prefix = "eval_bias") 
+        output_antibias = super().evaluate(self.eval_dataset_antibias, ignore_keys=ignore_keys, metric_key_prefix = "eval_antibias")
+
+        output.update(output_bias)
+        output.update(output_antibias)
+        return output
 
 
 
@@ -119,16 +155,15 @@ class AccuracyCallback(TrainerCallback):
     def on_train_begin(self, args, stage, control, **kwargs):
         print("Starting Training!")
 
-    #def on_step_end(self, args, state, control, **kwargs):
-    #    if state.global_step % self.eval_steps == 0:
-    #        control.should_evaluate = True
+    def on_step_end(self, args, state, control, **kwargs):
+        if state.global_step % self.eval_steps == 0:
+            control.should_evaluate = True
 
     def on_evaluate(self, args, state, control, metrics, **kwargs):
         print("Evaluation results:", metrics)
-        #control.should_save = True
+        control.should_save = True
         return control
     
-
 
 
 def main():
@@ -181,6 +216,10 @@ def main():
     # Add argument for biased model: Theta
     argp.add_argument('--min_theta', type=float, default=1.0,
                         help="""This argument specifies theta when annealing""")
+
+    # Arg for creating sythetic data
+    argp.add_argument('--synthetic_data', type=bool, default=False,
+                        help="""This argument specifies whether to create synthetic data""")
 
 
 
@@ -262,6 +301,8 @@ def main():
     eval_dataset = None
     train_dataset_featurized = None
     eval_dataset_featurized = None
+    eval_bias_featurized = None
+    eval_antibias_featurized = None
     if training_args.do_train:
         train_dataset = dataset['train']
         if args.max_train_samples:
@@ -274,6 +315,12 @@ def main():
                 lambda ex: {'premise': ex['sentence1'], 'hypothesis': ex['sentence2'], 'label': 0 if ex['gold_label'] == 'entailment' else 1 if ex['gold_label'] == 'neutral' else 2},
                 remove_columns=train_dataset.column_names
             )
+            if args.synthetic_data:
+                # append label to beginning of hypothesis
+                train_dataset = train_dataset.map(
+                    lambda ex: {'premise': ex['premise'], 'hypothesis': str(ex['label']) + ' ' + ex['hypothesis'], 'label': ex['label']},
+                    remove_columns=train_dataset.column_names
+                )
         train_dataset_featurized = train_dataset.map(
             prepare_train_dataset,
             batched=True,
@@ -292,6 +339,32 @@ def main():
                 lambda ex: {'premise': ex['sentence1'], 'hypothesis': ex['sentence2'], 'label': 0 if ex['gold_label'] == 'entailment' else 1 if ex['gold_label'] == 'neutral' else 2},
                 remove_columns=eval_dataset.column_names
             )
+
+            if args.synthetic_data:
+                # append label to beginning of hypothesis
+                eval_dataset_bias = eval_dataset.map(
+                    lambda ex: {'premise': ex['premise'], 'hypothesis': str(ex['label']) + ' ' + ex['hypothesis'], 'label': ex['label']},
+                    remove_columns=eval_dataset.column_names
+                )
+
+                eval_dataset_antibias = eval_dataset.map(
+                    lambda ex: {'premise': ex['premise'], 'hypothesis': str(max(1 - ex['label'],0)) + ' ' + ex['hypothesis'], 'label':ex['label']},
+                    remove_columns=eval_dataset.column_names
+                )
+
+                eval_bias_featurized = eval_dataset_bias.map(
+                    prepare_eval_dataset,
+                    batched=True,
+                    num_proc=NUM_PREPROCESSING_WORKERS,
+                    remove_columns=eval_dataset_bias.column_names
+                )
+
+                eval_antibias_featurized = eval_dataset_antibias.map(
+                    prepare_eval_dataset,
+                    batched=True,
+                    num_proc=NUM_PREPROCESSING_WORKERS,
+                    remove_columns=eval_dataset_antibias.column_names
+                )
         elif args.dataset in dataset_type2:
             eval_dataset = eval_dataset.map(
                 lambda ex: {'premise': ex['sentence1'], 'hypothesis': ex['sentence2'], 'label': 0 if ex['gold_label'] == 'entailment' else 1},
@@ -350,9 +423,11 @@ def main():
     
     if training_args.do_eval:
         step_size = int(args.train_size / (training_args.per_device_train_batch_size) / 2)
-        #callbacks = [AccuracyCallback(eval_steps=200, logging_steps=200)]
+        callbacks = [AccuracyCallback(eval_steps=200, logging_steps=200)]
         training_args.evaluation_strategy="steps"
         training_args.logging_strategy = "steps"
+        # Save evaluation predictions and metrics
+        training_args.save_steps = step_size
         training_args.save_strategy = "epoch"
         training_args.eval_steps = step_size
         training_args.logging_steps = step_size
@@ -361,6 +436,8 @@ def main():
         model=model,
         biased_model=biased_model,
         min_theta = args.min_theta,
+        eval_dataset_bias=eval_bias_featurized,
+        eval_dataset_antibias=eval_antibias_featurized,
         args=training_args,
         train_dataset=train_dataset_featurized,
         eval_dataset=eval_dataset_featurized,

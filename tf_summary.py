@@ -33,6 +33,13 @@ def main(args):
         v_loss = []
         acc = []
         c_above90 = []
+        bias_loss = []
+        bias_acc = []
+        bias_c_above90 = []
+        antibias_loss = []
+        antibias_acc = []
+        antibias_c_above90 = []
+
 
         for event in summary_iterator:
             # Print event
@@ -44,14 +51,35 @@ def main(args):
                 # Print only if it has a tag
                 if value.tag:
                     # Print tag and corresponding value
+                    #print(value.tag, value.simple_value)
                     if value.tag == 'train/loss':
                         t_loss.append(value.simple_value)
+
+                    # Log validation metrics
                     if value.tag == 'eval/loss':
                         v_loss.append(value.simple_value)
                     if value.tag == 'eval/accuracy':
                         acc.append(value.simple_value)
                     if value.tag == 'eval/c_above90':
                         c_above90.append(value.simple_value)
+
+                    # Log bias metrics
+                    if value.tag == 'eval/bias_loss':
+                        bias_loss.append(value.simple_value)
+                    if value.tag == 'eval/bias_accuracy':
+                        bias_acc.append(value.simple_value)
+                    if value.tag == 'eval/bias_c_above90':
+                        bias_c_above90.append(value.simple_value)
+                    
+                    # Log antibias metrics
+                    if value.tag == 'eval/antibias_loss':
+                        antibias_loss.append(value.simple_value)
+                    if value.tag == 'eval/antibias_accuracy':
+                        antibias_acc.append(value.simple_value)
+                    if value.tag == 'eval/antibias_c_above90':
+                        antibias_c_above90.append(value.simple_value)
+
+
                     if value.tag == 'train/epoch':
                         if len(epoch) == 0 or value.simple_value != epoch[-1]:
                             epoch.append(value.simple_value)
@@ -63,7 +91,7 @@ def main(args):
         csv_file_name = '_'.join(file_path.split('/')[-1].split('.')[:-1]) + '.csv'
         file_dir = '/'.join(file_path.split('/')[:-1]) + '/'
         with open(file_dir + csv_file_name, mode='w', newline = '') as csv_file:
-            fieldnames = ['epoch', 't_loss', 'v_loss', 'acc', 'c_above_90']
+            fieldnames = ['epoch', 't_loss', 'v_loss', 'acc', 'c_above_90', 'bias_loss', 'bias_acc', 'bias_c_above_90', 'antibias_loss', 'antibias_acc', 'antibias_c_above_90']
             writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
 
             writer.writeheader()
@@ -72,7 +100,13 @@ def main(args):
                                 't_loss': t_loss[i] if len(t_loss) > i else '', 
                                 'v_loss': v_loss[i] if len(v_loss) > i else '', 
                                 'acc': acc[i] if len(acc) > i else '', 
-                                'c_above_90': c_above90[i] if len(c_above90) > i else ''})
+                                'c_above_90': c_above90[i] if len(c_above90) > i else '',
+                                'bias_loss': bias_loss[i] if len(bias_loss) > i else '',
+                                'bias_acc': bias_acc[i] if len(bias_acc) > i else '',
+                                'bias_c_above_90': bias_c_above90[i] if len(bias_c_above90) > i else '',
+                                'antibias_loss': antibias_loss[i] if len(antibias_loss) > i else '',
+                                'antibias_acc': antibias_acc[i] if len(antibias_acc) > i else '',
+                                'antibias_c_above_90': antibias_c_above90[i] if len(antibias_c_above90) > i else '',})
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
