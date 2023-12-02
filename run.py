@@ -393,7 +393,7 @@ def main():
     
     if training_args.do_eval:
         step_size = int(args.train_size / (training_args.per_device_train_batch_size) / 2)
-        callbacks = [AccuracyCallback(eval_steps=200, logging_steps=200)]
+        #callbacks = [AccuracyCallback(eval_steps=200, logging_steps=200)]
         training_args.evaluation_strategy="steps"
         training_args.logging_strategy = "steps"
         # Save evaluation predictions and metrics
