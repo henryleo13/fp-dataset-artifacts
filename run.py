@@ -1,5 +1,5 @@
 from typing import Dict
-import datasets
+import datasets, random
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, \
     AutoModelForQuestionAnswering, Trainer, TrainerControl, TrainerState, TrainingArguments, HfArgumentParser, TrainerCallback
 from helpers import prepare_dataset_nli, prepare_train_dataset_qa, \
@@ -41,48 +41,7 @@ class MyTrainer(Trainer):
                 An optional prefix to be used as the metrics key prefix. For example the metrics "bleu" will be named
                 "eval_bleu" if the prefix is "eval".
         """
-    
-        """eval_dataloader = self.get_eval_dataloader(eval_dataset)
-        start_time = time.time()
-        eval_loop = self.prediction_loop if self.args.use_legacy_prediction_loop else self.evaluation_loop
-        output = eval_loop(
-            eval_dataloader,
-            description="Evaluation",
-            ignore_keys=ignore_keys,
-            metric_key_prefix=metric_key_prefix,
-        )
-        total_batch_size = self.args.eval_batch_size * self.args.world_size
-        output.metrics.update(speed_metrics(metric_key_prefix, start_time, output.num_samples * 1000 / total_batch_size))
 
-        # Add bias and antibias metrics
-        if self.eval_dataset_bias is not None:
-            bias_prefix = metric_key_prefix + "_bias"
-            start_time = time.time()
-            output_bias = self.evaluation_loop(
-                self.get_eval_dataloader(self.eval_dataset_bias),
-                description="Evaluation Bias",
-                ignore_keys=ignore_keys,
-                metric_key_prefix=bias_prefix,
-            )
-            output_bias.metrics.update(speed_metrics(bias_prefix, start_time, output_bias.num_samples * 1000 / total_batch_size))
-            output.metrics.update(output_bias.metrics)
-
-        if self.eval_dataset_antibias is not None:
-            antibias_prefix = metric_key_prefix + "_antibias"
-            start_time = time.time()
-            output_antibias = self.evaluation_loop(
-                self.get_eval_dataloader(self.eval_dataset_antibias),
-                description="Evaluation Antibias",
-                ignore_keys=ignore_keys,
-                metric_key_prefix=antibias_prefix,
-            )
-            output_antibias.metrics.update(speed_metrics(antibias_prefix, start_time, output_antibias.num_samples * 1000 / total_batch_size))
-            output.metrics.update(output_antibias.metrics)
-
-        self.control = self.callback_handler.on_evaluate(self.args, self.state, self.control, output.metrics)
-        #self.log_metrics('eval', output.metrics)
-        #self.save_metrics('eval', output.metrics, False)
-        return output.metrics"""
         output = super().evaluate(eval_dataset, ignore_keys=ignore_keys)
         output_bias = super().evaluate(self.eval_dataset_bias, ignore_keys=ignore_keys, metric_key_prefix = "eval_bias") 
         output_antibias = super().evaluate(self.eval_dataset_antibias, ignore_keys=ignore_keys, metric_key_prefix = "eval_antibias")
@@ -94,7 +53,7 @@ class MyTrainer(Trainer):
 
 
 class DebiasTrainer(Trainer):
-    def __init__(self, biased_model, min_theta, *args, **kwargs):
+    def __init__(self, biased_model, min_theta, eval_dataset_bias, eval_dataset_antibias, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.current_step = 0
         self.min_theta = min_theta
@@ -316,11 +275,22 @@ def main():
                 remove_columns=train_dataset.column_names
             )
             if args.synthetic_data:
-                # append label to beginning of hypothesis
-                train_dataset = train_dataset.map(
-                    lambda ex: {'premise': ex['premise'], 'hypothesis': str(ex['label']) + ' ' + ex['hypothesis'], 'label': ex['label']},
-                    remove_columns=train_dataset.column_names
-                )
+                # append label to beginning of hypothesis for 30% of the examples
+                def append_label(ex):
+                    if random.random() < 0.3:
+                        m = 0.9 # bias for m portion of the examples and anti-bias for 1-m portion of the examples
+                        if random.random() < m:
+                            ex['hypothesis'] = f"{ex['label']} {ex['hypothesis']}"
+                        else:
+                            ex['hypothesis'] = f"{max(1 - ex['label'],0)} {ex['hypothesis']}"
+                    return ex
+                
+                train_dataset = train_dataset.map(append_label)
+
+                #train_dataset = train_dataset.map(
+                #    lambda ex: {'premise': ex['premise'], 'hypothesis': str(ex['label']) + ' ' + ex['hypothesis'], 'label': ex['label']},
+                #    remove_columns=train_dataset.column_names
+                #)
         train_dataset_featurized = train_dataset.map(
             prepare_train_dataset,
             batched=True,
@@ -427,9 +397,9 @@ def main():
         training_args.evaluation_strategy="steps"
         training_args.logging_strategy = "steps"
         # Save evaluation predictions and metrics
-        training_args.save_steps = step_size
-        training_args.save_strategy = "epoch"
-        training_args.eval_steps = step_size
+        training_args.save_steps = 10000 if args.synthetic_data else step_size
+        training_args.save_strategy = "no" if args.synthetic_data else "epoch"
+        training_args.eval_steps = step_size//2 if args.synthetic_data else step_size
         training_args.logging_steps = step_size
     
     trainer = trainer_class(

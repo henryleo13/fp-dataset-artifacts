@@ -231,3 +231,31 @@ df_eval_metrics |>
     breaks = seq(0, 10, 1)
   ) +
   cowplot::theme_minimal_grid()
+
+
+#### Annealing ####
+eval_annealed_theta <- c(50, 60, 70, 80, 90)
+eval_annealed_dev_matched <- c(0.587, 0.517, 0.443, 0.373, 0.305)
+eval_annealed_dev_mismatched <- c(0.605,0.517, 0.444, 0.373, 0.309)
+eval_annealed_hans <- c(0.501, 0.505, 0.507, 0.515, 0.501)
+
+tibble(eval_annealed_theta, eval_annealed_dev_matched, eval_annealed_dev_mismatched, eval_annealed_hans) |> 
+  pivot_longer(-eval_annealed_theta, names_to = "eval_name", values_to = "accuracy") |> 
+  ggplot(aes(x = eval_annealed_theta, y = accuracy, color = eval_name)) +
+  geom_line(size = 1.2) +
+  geom_point() +
+  scale_x_continuous(
+    name = "Min Theta",
+    breaks = seq(50, 90, 10)
+  ) +
+  scale_y_continuous(
+    name = "Accuracy",
+    limits = c(0, 1),
+    expand = expansion(mult = 0),
+    labels = scales::percent
+  ) +
+  scale_color_discrete(
+    name = "Evaluation Set",
+    labels = function(x) str_to_title(x)
+  ) +
+  cowplot::theme_minimal_hgrid()
