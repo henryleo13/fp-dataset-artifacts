@@ -43,11 +43,12 @@ class MyTrainer(Trainer):
         """
 
         output = super().evaluate(eval_dataset, ignore_keys=ignore_keys)
-        output_bias = super().evaluate(self.eval_dataset_bias, ignore_keys=ignore_keys, metric_key_prefix = "eval_bias") 
-        output_antibias = super().evaluate(self.eval_dataset_antibias, ignore_keys=ignore_keys, metric_key_prefix = "eval_antibias")
 
-        output.update(output_bias)
-        output.update(output_antibias)
+        if self.eval_dataset_bias:
+            output_bias = super().evaluate(self.eval_dataset_bias, ignore_keys=ignore_keys, metric_key_prefix = "eval_bias") 
+            output_antibias = super().evaluate(self.eval_dataset_antibias, ignore_keys=ignore_keys, metric_key_prefix = "eval_antibias")
+            output.update(output_bias)
+            output.update(output_antibias)
         return output
 
 

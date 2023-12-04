@@ -51,7 +51,7 @@ def main(args):
                 # Print only if it has a tag
                 if value.tag:
                     # Print tag and corresponding value
-                    #print(value.tag, value.simple_value)
+                    print(value.tag, value.simple_value)
                     if value.tag == 'train/loss':
                         t_loss.append(value.simple_value)
 
@@ -83,6 +83,21 @@ def main(args):
                     if value.tag == 'train/epoch':
                         if len(epoch) == 0 or value.simple_value != epoch[-1]:
                             epoch.append(value.simple_value)
+                            # Append -1 to any list that is not epoch until lengths match
+                            if len(t_loss) != len(epoch):
+                                t_loss.append(-1)
+                            if len(v_loss) != len(epoch):
+                                v_loss.append(-1)
+                                acc.append(-1)
+                                c_above90.append(-1)
+                            if len(bias_loss) != len(epoch):
+                                bias_loss.append(-1)
+                                bias_acc.append(-1)
+                                bias_c_above90.append(-1)
+                            if len(antibias_loss) != len(epoch):
+                                antibias_loss.append(-1)
+                                antibias_acc.append(-1)
+                                antibias_c_above90.append(-1)
                     
                     #print(value.tag, value.simple_value)
 

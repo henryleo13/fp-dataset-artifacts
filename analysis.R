@@ -10,7 +10,10 @@ library(rio)
 
 # Type dir in console
 dir <- "D:/OneDrive/MSDS/Natural_Language_Processing/fp-dataset-artifacts/"
-
+load_metric_data <- function (file_path, file_name) {
+  df <- import(file_path) |> 
+    mutate(file_name = file_name)
+}
 
 #### Data set Analysis ####
 eval_names <- c("dev_matched", "dev_mismatched", "hans", "mnli_train")
@@ -168,8 +171,112 @@ df |>
   select(premise, hypothesis, gold_label, pred_label, eval_name) #|> 
   #export(str_c(dir, "evals/incorrect_dev.csv"))
 
+#### Biased Model on Synthetic Data ####
+file_with_path <- list.files(path = str_c(dir, "synthetic_data/"), recursive = T, pattern = ".csv", full.names = T)
+file_names <- list.files(path = str_c(dir, "synthetic_data/"), recursive = T, pattern = ".csv") |> 
+  stringr::word(1, sep = "/") 
+df_syn_metrics <- map2(file_with_path, file_names, load_metric_data) |> 
+  bind_rows() |> 
+  rename(
+    "dev_acc" = "acc",
+    "dev_c_above_90" = "c_above_90"
+  ) |> 
+  select(-contains("loss")) |> 
+  mutate(
+    `training samples` = str_extract(file_name, "[0-9]+") |> as.numeric(),
+    `training samples text` = factor(str_c(`training samples`, "k"))|> fct_reorder(`training samples`)
+  ) |> 
+  # Replace first occurence of _ with / in col names
+  rename_with(~str_replace(., "_", "/"), contains("_")) |>
+  pivot_longer(
+    cols = contains(c("c_above_90", "acc")),
+    names_to = c("eval_set", "metric"),
+    names_pattern = "(.*)/(.*)",
+    values_to = "value"
+  ) |> 
+  mutate(
+    value = if_else(value < 0, NA_real_, value)
+  ) |> 
+  pivot_wider(
+    names_from = "metric",
+    values_from = "value"
+  ) 
+  
+df_start_values <- df_syn_metrics |> 
+  select(`file/name`, `training samples`, `training samples text`, eval_set) |> 
+  unique() |> 
+  mutate(epoch = 0, acc = 0.33, c_above_90 = 0)
 
-#### Biased Model Performance ####
+df_syn_metrics |>
+  filter(!is.na(acc)) |> 
+  bind_rows(df_start_values) |> 
+  ggplot(aes(x = epoch, y = acc, color = eval_set)) +
+  #ignore na when drawing line
+  geom_line() +
+  geom_point() +
+  facet_wrap(~`training samples text`, nrow = 1) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    expand = expansion(mult = 0),
+    name = "Accuracy",
+    labels = scales::percent,
+    breaks = seq(0, 1, 0.1)
+  )  +
+  scale_color_brewer(
+    palette = "Set1",
+    name = "Evaluation Set",
+    labels = c("MNLI-Antibias", "MNLI-Bias", "MNLI")
+  ) +
+  scale_x_continuous(
+    name = "Epoch",
+    breaks = seq(0, 10, 2)
+  ) +
+  theme_bw(16)+
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    strip.text = element_text(size = 16)
+  )
+  
+df_syn_metrics |>
+  filter(!is.na(acc)) |> 
+  bind_rows(df_start_values) |> 
+  ggplot(aes(x = epoch, y = c_above_90, color = eval_set)) +
+  #ignore na when drawing line
+  geom_line() +
+  geom_point() +
+  facet_wrap(~`training samples text`, nrow = 1) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    expand = expansion(mult = 0),
+    name = "Accuracy",
+    labels = scales::percent,
+    breaks = seq(0, 1, 0.1)
+  )  +
+  scale_color_brewer(
+    palette = "Set1",
+    name = "Evaluation Set",
+    labels = c("MNLI-Antibias", "MNLI-Bias", "MNLI")
+  ) +
+  scale_x_continuous(
+    name = "Epoch",
+    breaks = seq(0, 10, 2)
+  ) +
+  theme_bw(16)+
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(size = 16),
+    legend.text = element_text(size = 16),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 16),
+    strip.text = element_text(size = 16)
+  )
+  
+
+  #### Biased Model Performance ####
 file_with_path <- list.files(path = str_c(dir, "plotting_data"), pattern = ".csv", full.names = T)
 file_names <- list.files(path = str_c(dir, "plotting_data"), pattern = ".csv")
 
@@ -187,7 +294,8 @@ df_eval_metrics |>
   ) |> 
   ggplot(aes(x= epoch, y = acc, color = training_samples_text)) +
   geom_line(size = 1) +
-  scale_color_colorblind(
+  scale_color_brewer(
+    palette = "Set1",
     name = "Training Samples",
     #labels = c("5k", "10k", "15k", "20k")
   ) +
