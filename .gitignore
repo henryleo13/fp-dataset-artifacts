@@ -15,3 +15,6 @@ student_model/
 training_model/
 plotting_data/
 synthetic_data/
+*.png
+*.pdf
+*.zip
